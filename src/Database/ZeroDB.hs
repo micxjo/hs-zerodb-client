@@ -36,11 +36,14 @@ import           Control.Error
 import           Control.Lens
 import           Control.Monad.Reader (ReaderT, MonadReader, runReaderT, ask)
 import           Control.Monad.Trans
+import           Data.Aeson
 import           Data.ByteString.Lazy (ByteString)
+import qualified Data.ByteString.Lazy as BSL
 import           Data.Hashable (Hashable)
 import           Data.Text (Text)
 import qualified Data.Text as T
-import           Network.Wreq (Response, FormParam(..), param, partText,
+import qualified Data.Vector as V
+import           Network.Wreq (Response, FormParam(..), param, partBS, partText,
                                defaults)
 import           Network.Wreq.Session (Session)
 import qualified Network.Wreq.Session as S
@@ -118,10 +121,10 @@ query model q = do
   let uri = mkUri connectionInfo [model, "_find"]
   liftIO (S.post session uri [partText "criteria" q])
 
-insert :: Model -> [Document] -> ZeroDB (Response ByteString)
+insert :: ToJSON a => Model -> [a] -> ZeroDB (Response ByteString)
 insert model docs = do
   Connection{..} <- ask
   let uri = mkUri connectionInfo [model, "_insert"]
-  let docs' = mconcat ["[", T.intercalate "," docs, "]"]
+  let encodedDocs = BSL.toStrict (encode (V.fromList docs))
 
-  liftIO (S.post session uri [partText "docs" docs'])
+  liftIO (S.post session uri [partBS "docs" encodedDocs])

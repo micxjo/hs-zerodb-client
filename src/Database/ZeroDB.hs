@@ -47,6 +47,7 @@ import qualified Data.ByteString.Lazy as BSL
 import           Data.Hashable (Hashable)
 import           Data.Text (Text)
 import qualified Data.Text as T
+import           Data.Vector (Vector)
 import qualified Data.Vector as V
 import           Network.Wreq (Response, FormParam(..), param, partBS,
                                defaults, responseBody)
@@ -121,12 +122,15 @@ get model oid = do
     Left e -> fail e
     Right doc -> pure doc
 
-query :: Model -> Query -> ZeroDB (Response ByteString)
+query :: FromJSON a => Model -> Query -> ZeroDB (Vector a)
 query model q = do
   Connection{..} <- ask
   let uri = mkUri connectionInfo [model, "_find"]
   let encodedQuery = BSL.toStrict (encode q)
-  liftIO (S.post session uri [partBS "criteria" encodedQuery])
+  resp <- liftIO (S.post session uri [partBS "criteria" encodedQuery])
+  case eitherDecode' (resp ^. responseBody) of
+    Left e -> fail e
+    Right docs -> pure docs
 
 insert :: ToJSON a => Model -> [a] -> ZeroDB (Response ByteString)
 insert model docs = do

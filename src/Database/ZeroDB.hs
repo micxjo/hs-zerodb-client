@@ -12,8 +12,13 @@ module Database.ZeroDB
        , runZeroDB
          -- * Querying
        , get
+       , select
        , query
        , insert
+       , eq
+       , ne
+       , lt
+       , gt
          -- * Misc Types
        , Model
        , Query
@@ -32,17 +37,18 @@ import           GHC.Generics (Generic)
 import           GHC.Word (Word16)
 
 import           Control.Error
-import           Control.Lens
+import           Control.Lens hiding ((.=))
 import           Control.Monad.Reader (ReaderT, MonadReader, runReaderT, ask)
 import           Control.Monad.Trans
 import           Data.Aeson
+import           Data.Aeson.Types (Pair)
 import           Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import           Data.Hashable (Hashable)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
-import           Network.Wreq (Response, FormParam(..), param, partBS, partText,
+import           Network.Wreq (Response, FormParam(..), param, partBS,
                                defaults, responseBody)
 import           Network.Wreq.Session (Session)
 import qualified Network.Wreq.Session as S
@@ -97,7 +103,7 @@ runZeroDB ci@ConnectionInfo{..} z =
     pure res
 
 type Model = Text
-type Query = Text
+type Query = Value
 
 newtype ObjectID = ObjectID { unObjectID :: Integer }
                  deriving (Eq, Show, Read, Ord, Num, Enum,
@@ -119,7 +125,8 @@ query :: Model -> Query -> ZeroDB (Response ByteString)
 query model q = do
   Connection{..} <- ask
   let uri = mkUri connectionInfo [model, "_find"]
-  liftIO (S.post session uri [partText "criteria" q])
+  let encodedQuery = BSL.toStrict (encode q)
+  liftIO (S.post session uri [partBS "criteria" encodedQuery])
 
 insert :: ToJSON a => Model -> [a] -> ZeroDB (Response ByteString)
 insert model docs = do
@@ -128,3 +135,21 @@ insert model docs = do
   let encodedDocs = BSL.toStrict (encode (V.fromList docs))
 
   liftIO (S.post session uri [partBS "docs" encodedDocs])
+
+select :: [Pair] -> Query
+select criteria =
+  object ["$and" .= Array (V.fromList (map (object . replicate 1) criteria))]
+
+type Field = Text
+
+eq :: Field -> Value -> Pair
+eq field value = field .= object ["$eq" .= value]
+
+ne :: Field -> Value -> Pair
+ne field value = field .= object ["$ne" .= value]
+
+lt :: Field -> Value -> Pair
+lt field value = field .= object ["$lt" .= value]
+
+gt :: Field -> Value -> Pair
+gt field value = field .= object ["$gt" .= value]

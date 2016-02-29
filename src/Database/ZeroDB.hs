@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -25,6 +27,9 @@ module Database.ZeroDB
 
 import           Control.Exception (SomeException)
 
+import           Data.Data (Data)
+import           Data.Typeable (Typeable)
+import           GHC.Generics (Generic)
 import           GHC.Word (Word16)
 
 import           Control.Error
@@ -32,6 +37,7 @@ import           Control.Lens
 import           Control.Monad.Reader (ReaderT, MonadReader, runReaderT, ask)
 import           Control.Monad.Trans
 import           Data.ByteString.Lazy (ByteString)
+import           Data.Hashable (Hashable)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Network.Wreq (Response, FormParam(..), param, partText,
@@ -90,14 +96,20 @@ runZeroDB ci@ConnectionInfo{..} z =
 
 type Model = Text
 type Query = Text
-type ObjectID = Integer
+
+newtype ObjectID = ObjectID { unObjectID :: Integer }
+                 deriving (Eq, Show, Read, Ord, Num, Enum,
+                           Generic, Typeable, Data)
+
+instance Hashable ObjectID where
+
 type Document = Text
 
 get :: Model -> ObjectID -> ZeroDB (Response ByteString)
-get model objId = do
+get model oid = do
   Connection{..} <- ask
   let uri = mkUri connectionInfo [model, "_get"]
-  let opts = defaults & param "_id" .~ [T.pack (show objId)]
+  let opts = defaults & param "_id" .~ [T.pack (show (unObjectID oid))]
   liftIO (S.getWith opts session uri)
 
 query :: Model -> Query -> ZeroDB (Response ByteString)

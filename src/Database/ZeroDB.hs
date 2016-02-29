@@ -42,14 +42,13 @@ import           Control.Monad.Reader (ReaderT, MonadReader, runReaderT, ask)
 import           Control.Monad.Trans
 import           Data.Aeson
 import           Data.Aeson.Types (Pair)
-import           Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as BSL
 import           Data.Hashable (Hashable)
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Vector (Vector)
 import qualified Data.Vector as V
-import           Network.Wreq (Response, FormParam(..), param, partBS,
+import           Network.Wreq (FormParam(..), param, partBS,
                                defaults, responseBody)
 import           Network.Wreq.Session (Session)
 import qualified Network.Wreq.Session as S
@@ -112,6 +111,19 @@ newtype ObjectID = ObjectID { unObjectID :: Integer }
 
 instance Hashable ObjectID where
 
+instance FromJSON ObjectID where
+  parseJSON = withObject "oid" $ \o -> do
+    oid <- o .: "$oid"
+    pure (ObjectID oid)
+
+newtype InsertResponse = InsertResponse (Vector ObjectID)
+                       deriving (Eq, Show)
+
+instance FromJSON InsertResponse where
+  parseJSON = withObject "insert response" $ \o -> do
+    oids <- o .: "oids"
+    pure (InsertResponse oids)
+
 get :: FromJSON a => Model -> ObjectID -> ZeroDB a
 get model oid = do
   Connection{..} <- ask
@@ -132,13 +144,17 @@ query model q = do
     Left e -> fail e
     Right docs -> pure docs
 
-insert :: ToJSON a => Model -> [a] -> ZeroDB (Response ByteString)
+insert :: ToJSON a => Model -> [a] -> ZeroDB (Vector ObjectID)
 insert model docs = do
   Connection{..} <- ask
   let uri = mkUri connectionInfo [model, "_insert"]
   let encodedDocs = BSL.toStrict (encode (V.fromList docs))
 
-  liftIO (S.post session uri [partBS "docs" encodedDocs])
+  resp <- liftIO (S.post session uri [partBS "docs" encodedDocs])
+
+  case eitherDecode' (resp ^. responseBody) of
+    Left e -> fail e
+    Right (InsertResponse oids) -> pure oids
 
 select :: [Pair] -> Query
 select criteria =

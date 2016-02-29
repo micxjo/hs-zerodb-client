@@ -22,7 +22,6 @@ module Database.ZeroDB
        , Port
        , Username
        , Passphrase
-       , Document
        ) where
 
 import           Control.Exception (SomeException)
@@ -44,7 +43,7 @@ import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import           Network.Wreq (Response, FormParam(..), param, partBS, partText,
-                               defaults)
+                               defaults, responseBody)
 import           Network.Wreq.Session (Session)
 import qualified Network.Wreq.Session as S
 
@@ -106,14 +105,15 @@ newtype ObjectID = ObjectID { unObjectID :: Integer }
 
 instance Hashable ObjectID where
 
-type Document = Text
-
-get :: Model -> ObjectID -> ZeroDB (Response ByteString)
+get :: FromJSON a => Model -> ObjectID -> ZeroDB a
 get model oid = do
   Connection{..} <- ask
   let uri = mkUri connectionInfo [model, "_get"]
   let opts = defaults & param "_id" .~ [T.pack (show (unObjectID oid))]
-  liftIO (S.getWith opts session uri)
+  resp <- liftIO (S.getWith opts session uri)
+  case eitherDecode' (resp ^. responseBody) of
+    Left e -> fail e
+    Right doc -> pure doc
 
 query :: Model -> Query -> ZeroDB (Response ByteString)
 query model q = do
